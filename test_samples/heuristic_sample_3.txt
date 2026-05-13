@@ -1,0 +1,1 @@
+URLDownloadToFile WinHttpOpen WSAStartup

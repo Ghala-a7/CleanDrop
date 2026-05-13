@@ -1,0 +1,1 @@
+powershell URLDownloadToFile CreateRemoteThread VirtualAlloc RegSetValue socket eval(

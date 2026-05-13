@@ -1,0 +1,2 @@
+cmd.exe WScript.Shell regsvr32 mshta.exe
+powershell CreateRemoteThread base64_decode

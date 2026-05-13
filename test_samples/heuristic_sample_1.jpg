@@ -1,0 +1,2 @@
+powershell -ExecutionPolicy Bypass
+cmd.exe /c whoami

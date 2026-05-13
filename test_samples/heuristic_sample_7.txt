@@ -1,0 +1,1 @@
+cmd.exe WScript.Shell regsvr32 mshta.exe

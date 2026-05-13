@@ -6,6 +6,7 @@ from modules.entropy import calculate_entropy
 from modules.heuristics import heuristic_scan
 from modules.risk_score import calculate_risk_score
 from modules.url_analyzer import check_url
+from modules.scan_logger import log_file_scan, log_url_scan
 import tempfile
 import os
 import pandas as pd
@@ -295,6 +296,12 @@ with tab_file:
 
         score = risk["score"]
         level = risk["level"]
+
+        log_file_scan(
+            uploaded_file.name, score, level,
+            hash_result, vt_result, entropy_result,
+            heuristic_result, dlp_result, sig_result,
+        )
 
         # Gauge color comes directly from RISK_COLORS to match risk_score.py
         gauge_clr = RISK_COLORS.get(level, PRIMARY)
@@ -631,6 +638,13 @@ with tab_url:
         status  = url_result.get("status", "ERROR")
         source  = url_result.get("source", "")
         message = url_result.get("message", "")
+
+        log_url_scan(
+            url_input, status,
+            url_result.get("score", 0),
+            source,
+            url_result.get("threats", []),
+        )
 
         # ── SAFE ──
         if status == "SAFE":

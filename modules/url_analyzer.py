@@ -7,15 +7,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# =============================================================================
-# API KEYS  (loaded from .env)
-# =============================================================================
-GOOGLE_API_KEY        = os.environ.get("GOOGLE_API_KEY", "")
-VIRUSTOTAL_API_KEY    = os.environ.get("VIRUSTOTAL_API_KEY", "")
-CLOUDFLARE_TOKEN      = os.environ.get("CLOUDFLARE_TOKEN", "")
-CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
-
 DEBUG_CLOUDFLARE = False
+
+
+def _keys():
+    """Read API keys at call time so Streamlit Cloud secrets are always picked up."""
+    return {
+        "google":       os.environ.get("GOOGLE_API_KEY", ""),
+        "virustotal":   os.environ.get("VIRUSTOTAL_API_KEY", ""),
+        "cf_token":     os.environ.get("CLOUDFLARE_TOKEN", ""),
+        "cf_account":   os.environ.get("CLOUDFLARE_ACCOUNT_ID", ""),
+    }
 
 
 # =============================================================================
@@ -49,7 +51,7 @@ def extract_domain(url):
 def check_google_safe_browsing(url):
     api_url = (
         f'https://safebrowsing.googleapis.com/v4/threatMatches:find'
-        f'?key={GOOGLE_API_KEY}'
+        f'?key={_keys()["google"]}'
     )
     payload = {
         'client': {'clientId': 'cleandrop', 'clientVersion': '1.0'},
@@ -80,7 +82,7 @@ def check_virustotal_url(url):
     try:
         url_id   = base64.urlsafe_b64encode(url.encode()).decode().strip("=")
         vt_url   = f"https://www.virustotal.com/api/v3/urls/{url_id}"
-        headers  = {"x-apikey": VIRUSTOTAL_API_KEY}
+        headers  = {"x-apikey": _keys()["virustotal"]}
         response = requests.get(vt_url, headers=headers, timeout=15)
  
         if response.status_code == 200:
@@ -183,7 +185,7 @@ def _submit_and_retry(url):
     # but we do NOT wait and retry — this causes false SAFE results
     # Instead we just return NOT_FOUND so other layers decide
     try:
-        headers  = {"x-apikey": VIRUSTOTAL_API_KEY}
+        headers  = {"x-apikey": _keys()["virustotal"]}
         requests.post(
             "https://www.virustotal.com/api/v3/urls",
             headers=headers, data={"url": url}, timeout=15
@@ -197,9 +199,10 @@ def _submit_and_retry(url):
 # STEP 4 — Cloudflare (two endpoints combined)
 # =============================================================================
 def check_cloudflare_radar(url):
+    k       = _keys()
     domain  = extract_domain(url)
     headers = {
-        "Authorization": f"Bearer {CLOUDFLARE_TOKEN}",
+        "Authorization": f"Bearer {k['cf_token']}",
         "Content-Type":  "application/json"
     }
 
@@ -237,10 +240,10 @@ def check_cloudflare_radar(url):
         pass
 
     # ── Endpoint B: Intel Domain ──
-    if CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_ACCOUNT_ID != 'YOUR_ACCOUNT_ID':
+    if k['cf_account'] and k['cf_account'] != 'YOUR_ACCOUNT_ID':
         intel_url = (
             f"https://api.cloudflare.com/client/v4/accounts/"
-            f"{CLOUDFLARE_ACCOUNT_ID}/intel/domain?domain={domain}"
+            f"{k['cf_account']}/intel/domain?domain={domain}"
         )
         try:
             resp_b = requests.get(intel_url, headers=headers, timeout=10)

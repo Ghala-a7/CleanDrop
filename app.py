@@ -2,10 +2,13 @@ import streamlit as st
 import os
 
 # Bridge st.secrets → os.environ so all modules can use os.environ.get() consistently.
-# Works both locally (where .env is loaded via python-dotenv) and on Streamlit Cloud.
-for _k, _v in st.secrets.items():
-    if isinstance(_v, str):
-        os.environ.setdefault(_k, _v)
+# On Streamlit Cloud secrets.toml exists; locally .env is used via python-dotenv.
+try:
+    for _k, _v in st.secrets.items():
+        if isinstance(_v, str):
+            os.environ.setdefault(_k, _v)
+except Exception:
+    pass
 
 from modules.dlp import scan_for_pii
 from modules.hash_engine import get_file_hash, check_hash_in_database

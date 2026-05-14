@@ -26,8 +26,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-VT_API_KEY = os.environ.get("VIRUSTOTAL_API_KEY", "")
-
 
 def check_virustotal(file_hash):
     """
@@ -55,7 +53,7 @@ def check_virustotal(file_hash):
         }
 
     url = f'https://www.virustotal.com/api/v3/files/{file_hash}'
-    headers = {'x-apikey': VT_API_KEY}
+    headers = {'x-apikey': os.environ.get("VIRUSTOTAL_API_KEY", "")}
 
     try:
         response = requests.get(url, headers=headers, timeout=10)

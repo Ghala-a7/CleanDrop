@@ -2,7 +2,6 @@ import os
 import requests
 import re
 import base64
-import time
 from dotenv import load_dotenv
 
 load_dotenv()

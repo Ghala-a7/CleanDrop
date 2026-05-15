@@ -38,26 +38,6 @@ def _get_client():
     return _supabase_client
 
 
-# ── COMMENTED OUT: old SQLite connection ─────────────────────────────────────
-# import sqlite3
-#
-# def check_hash_in_database_sqlite(file_hash):
-#     if not file_hash:
-#         return {'status': 'ERROR', 'source': 'Local Database', 'score': 0}
-#     try:
-#         conn = sqlite3.connect('database/malware_hashes.db')
-#         cursor = conn.cursor()
-#         cursor.execute('SELECT hash FROM hashes WHERE hash = ?', (file_hash,))
-#         result = cursor.fetchone()
-#         conn.close()
-#         if result:
-#             return {'status': 'MALWARE', 'source': 'Local Database', 'score': 100}
-#         else:
-#             return {'status': 'SAFE', 'source': 'Local Database', 'score': 0}
-#     except Exception:
-#         return {'status': 'SAFE', 'source': 'Local Database', 'score': 0}
-# ─────────────────────────────────────────────────────────────────────────────
-
 
 def get_file_hash(file_path):
     """

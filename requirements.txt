@@ -3,8 +3,8 @@ PyPDF2
 python-docx
 pandas
 openpyxl
-fpdf
 requests
 reportlab
 supabase
 python-dotenv
+plotly

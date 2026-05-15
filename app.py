@@ -2,7 +2,6 @@ import streamlit as st
 import os
 
 # Bridge st.secrets → os.environ so all modules can use os.environ.get() consistently.
-# On Streamlit Cloud secrets.toml exists; locally .env is used via python-dotenv.
 try:
     for _k, _v in st.secrets.items():
         if isinstance(_v, str):
@@ -18,8 +17,9 @@ from modules.heuristics import heuristic_scan
 from modules.risk_score import calculate_risk_score
 from modules.url_analyzer import check_url
 from modules.scan_logger import log_file_scan, log_url_scan
+from modules.auth import is_authenticated
+from modules.file_signature import check_file_signature
 import tempfile
-import os
 import pandas as pd
 
 
@@ -34,19 +34,13 @@ st.set_page_config(
 
 # ──────────────────────────────────────────────
 # RISK LEVEL COLOR SYSTEM
-# Matches exactly with risk_score.py levels:
-#   SAFE     → #00C896  green
-#   LOW      → #A8D400  yellow-green
-#   MEDIUM   → #FFD700  yellow
-#   HIGH     → #FF7A00  orange
-#   CRITICAL → #FF2D2D  red
 # ──────────────────────────────────────────────
 RISK_COLORS = {
-    "SAFE":     "#3B82F6",   # أزرق (آمن)
-    "LOW":      "#22C55E",   # أخضر
-    "MEDIUM":   "#FFD700",   # أصفر
-    "HIGH":     "#FF7A00",   # برتقالي
-    "CRITICAL": "#FF2D2D",   # أحمر
+    "SAFE":     "#3B82F6",
+    "LOW":      "#22C55E",
+    "MEDIUM":   "#FFD700",
+    "HIGH":     "#FF7A00",
+    "CRITICAL": "#FF2D2D",
 }
 
 RISK_BG = {
@@ -58,19 +52,23 @@ RISK_BG = {
 }
 
 RISK_ICONS = {
-    "SAFE":     "🔵",
-    "LOW":      "🟢",
-    "MEDIUM":   "🟡",
-    "HIGH":     "🟠",
-    "CRITICAL": "🔴"
+    "SAFE":     '<i class="bi bi-circle-fill" style="color:#3B82F6;font-size:10px;vertical-align:middle;"></i>',
+    "LOW":      '<i class="bi bi-circle-fill" style="color:#22C55E;font-size:10px;vertical-align:middle;"></i>',
+    "MEDIUM":   '<i class="bi bi-circle-fill" style="color:#FFD700;font-size:10px;vertical-align:middle;"></i>',
+    "HIGH":     '<i class="bi bi-circle-fill" style="color:#FF7A00;font-size:10px;vertical-align:middle;"></i>',
+    "CRITICAL": '<i class="bi bi-circle-fill" style="color:#FF2D2D;font-size:10px;vertical-align:middle;"></i>',
 }
 
 # ──────────────────────────────────────────────
 # SIDEBAR — Theme Toggle at the TOP
 # ──────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### ⚙️ Display Settings")
-    mode = st.radio("Theme", ["🌑 Dark Mode", "☀️ Light Mode"], index=0)
+    st.markdown(
+        '<div style="font-size:1rem;font-weight:700;margin-bottom:8px;">'
+        '<i class="bi bi-gear-fill"></i> Display Settings</div>',
+        unsafe_allow_html=True
+    )
+    mode = st.radio("Theme", ["Dark Mode", "Light Mode"], index=0)
     st.markdown("---")
 
     # Risk Level Guide
@@ -88,7 +86,7 @@ with st.sidebar:
     st.markdown("*CleanDrop* v1.0")
     st.markdown("University of Bisha — Cyber Security Dept.")
 
-IS_DARK = mode.startswith("🌑")
+IS_DARK = mode == "Dark Mode"
 
 # ──────────────────────────────────────────────
 # VISUAL IDENTITY — Official CleanDrop Colours
@@ -109,6 +107,7 @@ PRIMARY = "#00FFA3"
 st.markdown(f"""
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;500;700&display=swap');
+  @import url('https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css');
 
   html, body, [data-testid="stAppViewContainer"], .stApp {{
       background-color: {BG_COLOR} !important;
@@ -120,17 +119,27 @@ st.markdown(f"""
   }}
   [data-testid="stSidebar"] * {{ color: {TEXT_COLOR} !important; }}
 
-  .stButton > button {{
+  /* ── Buttons — target via Streamlit's own kind attribute ── */
+  button[kind] {{
       background-color: {PRIMARY} !important;
       color: #0E1117 !important;
-      font-weight: 700;
-      border: none;
-      border-radius: 8px;
-      padding: 0.55rem 1.5rem;
-      font-family: 'Roboto', sans-serif;
-      transition: opacity 0.2s;
+      font-weight: 700 !important;
+      border: none !important;
+      border-radius: 8px !important;
+      padding: 0.55rem 1.5rem !important;
+      font-family: 'Roboto', sans-serif !important;
+      transition: opacity 0.2s !important;
   }}
-  .stButton > button:hover {{ opacity: 0.85; }}
+  button[kind] *, button[kind] p, button[kind] span, button[kind] div {{
+      color: #0E1117 !important;
+  }}
+  button[kind]:hover, button[kind]:focus, button[kind]:active {{
+      background-color: {PRIMARY} !important;
+      color: #0E1117 !important;
+      opacity: 0.85 !important;
+      border: none !important;
+  }}
+
   a {{ color: {PRIMARY} !important; }}
 
   [data-testid="stFileUploader"] {{
@@ -161,8 +170,7 @@ st.markdown(f"""
   .cd-subtitle {{
       text-align: center;
       font-size: 1rem;
-      color: {TEXT_COLOR};
-      opacity: 0.7;
+      color: {"#CCCCCC" if IS_DARK else "#555555"};
       margin-bottom: 28px;
   }}
   .cd-section {{
@@ -198,10 +206,22 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
+# Always hide the Admin page from the sidebar nav — admins navigate directly via URL
+st.markdown("""
+<style>
+[data-testid="stSidebarNav"] { display: none !important; }
+</style>
+""", unsafe_allow_html=True)
+
 # ──────────────────────────────────────────────
 # HEADER
 # ──────────────────────────────────────────────
-st.markdown('<div style="text-align:center; padding:10px 0 4px;"><span style="font-size:3.2rem;">🛡️</span></div>', unsafe_allow_html=True)
+st.markdown(
+    '<div style="text-align:center; padding:10px 0 4px;">'
+    f'<i class="bi bi-shield-fill-check" style="font-size:3.2rem; color:{PRIMARY};"></i>'
+    '</div>',
+    unsafe_allow_html=True
+)
 st.markdown('<div class="cd-logo-title">CleanDrop</div>', unsafe_allow_html=True)
 st.markdown('<div class="cd-subtitle">Security Analysis Report &nbsp;|&nbsp; Threat & PII Detection</div>', unsafe_allow_html=True)
 st.markdown("<hr>", unsafe_allow_html=True)
@@ -212,60 +232,65 @@ st.markdown("<hr>", unsafe_allow_html=True)
 RECOMMENDATIONS = {
     "Hash / VirusTotal": {
         "status": "Malware",
-        "icon":   "🔴",
+        "icon":   '<i class="bi bi-x-circle-fill"></i>',
         "color":  RISK_COLORS["CRITICAL"],
         "bg":     RISK_BG["CRITICAL"],
-        "message": "⚠️ *Warning:* This file is known to be malicious. *Delete it immediately* and do not share it with anyone.",
+        "message": "<strong>Warning:</strong> This file is known to be malicious. <strong>Delete it immediately</strong> and do not share it with anyone.",
     },
     "DLP (PII)": {
         "status": "Detected",
-        "icon":   "🟠",
+        "icon":   '<i class="bi bi-shield-exclamation"></i>',
         "color":  RISK_COLORS["HIGH"],
         "bg":     RISK_BG["HIGH"],
-        "message": "🔒 *Privacy Alert:* The file contains sensitive information (National ID / IBAN / Mobile Number / Email). Make sure to *encrypt it* before sending.",
+        "message": "<strong>Privacy Alert:</strong> The file contains sensitive information (National ID / IBAN / Mobile Number / Email). Make sure to <strong>encrypt it</strong> before sending.",
     },
     "Entropy": {
-        "icon":    "🟠",
+        "icon":    '<i class="bi bi-lock-fill"></i>',
         "color":   RISK_COLORS["HIGH"],
         "bg":      RISK_BG["HIGH"],
-        "message": "🔐 *High Entropy Detected:* The file appears to be encrypted or obfuscated. This is a common technique used to hide malware. Do *not run it* unless you fully trust the source.",
+        "message": "<strong>High Entropy Detected:</strong> The file appears to be encrypted or obfuscated. This is a common technique used to hide malware. Do <strong>not run it</strong> unless you fully trust the source.",
     },
     "Heuristics": {
-        "icon":    "🟠",
+        "icon":    '<i class="bi bi-bug-fill"></i>',
         "color":   RISK_COLORS["HIGH"],
         "bg":      RISK_BG["HIGH"],
-        "message": "🧩 *Suspicious Behavior Detected:* The file contains suspicious structural indicators commonly found in malware. Do *not run it* unless you fully trust the source.",
+        "message": "<strong>Suspicious Behavior Detected:</strong> The file contains suspicious structural indicators commonly found in malware. Do <strong>not run it</strong> unless you fully trust the source.",
     },
     "File Signature": {
         "status": "Spoofed",
-        "icon":   "🔴",
+        "icon":   '<i class="bi bi-file-earmark-x-fill"></i>',
         "color":  RISK_COLORS["CRITICAL"],
         "bg":     RISK_BG["CRITICAL"],
-        "message": "🚨 *Extension Spoofing Detected:* This file claims to be a document but is actually an executable. *Delete it immediately* — this is a classic malware delivery technique.",
+        "message": "<strong>Extension Spoofing Detected:</strong> This file claims to be a document but is actually an executable. <strong>Delete it immediately</strong> — this is a classic malware delivery technique.",
     },
     "URL Analyzer": {
         "status": "Malicious",
-        "icon":   "🔴",
+        "icon":   '<i class="bi bi-exclamation-triangle-fill"></i>',
         "color":  RISK_COLORS["CRITICAL"],
         "bg":     RISK_BG["CRITICAL"],
-        "message": "⚠️ *Malicious Link:* This URL appears in threat blacklists. Do *not enter any personal information* on this site.",
+        "message": "<strong>Malicious Link:</strong> This URL appears in threat blacklists. Do <strong>not enter any personal information</strong> on this site.",
     },
 }
 
 # ──────────────────────────────────────────────
 # TAB LAYOUT — File Scanner | URL Scanner
 # ──────────────────────────────────────────────
-tab_file, tab_url = st.tabs(["📂  File Scanner", "🔗  URL Scanner"])
+tab_file, tab_url = st.tabs(["  File Scanner", "  URL Scanner"])
 
 # ══════════════════════════════════════════════
 # TAB 1 — FILE SCANNER
 # ══════════════════════════════════════════════
 with tab_file:
 
-    st.markdown('<div class="cd-section">📂 Upload File for Scanning</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="cd-section">'
+        '<i class="bi bi-folder2-open"></i> Upload File for Scanning'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
     uploaded_file = st.file_uploader(
-        "Supported formats: TXT, PDF, DOC, DOCX, XLS, XLSX, CSV,  JPG, JPEG, PNG, WEBP, BMP, TIFF",
+        "Supported formats: TXT, PDF, DOC, DOCX, XLS, XLSX, CSV, JPG, JPEG, PNG, WEBP, BMP, TIFF",
         type=["txt", "pdf", "doc", "docx", "xls", "xlsx", "csv", "jpg", "jpeg", "png", "bmp", "tiff", "webp"],
         label_visibility="visible",
     )
@@ -285,8 +310,7 @@ with tab_file:
             'note': 'Not checked yet', 'magic_bytes': ''
         }
 
-        with st.spinner("🔍 Scanning file…"):
-            from modules.file_signature import check_file_signature
+        with st.spinner("Scanning file…"):
             sig_result       = check_file_signature(tmp_path)
             dlp_result       = scan_for_pii(tmp_path)
             file_hash        = get_file_hash(tmp_path)
@@ -314,11 +338,15 @@ with tab_file:
             heuristic_result, dlp_result, sig_result,
         )
 
-        # Gauge color comes directly from RISK_COLORS to match risk_score.py
         gauge_clr = RISK_COLORS.get(level, PRIMARY)
 
         st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="cd-section">📊 CleanDrop Security Analysis Report</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="cd-section">'
+            '<i class="bi bi-bar-chart-fill"></i> CleanDrop Security Analysis Report'
+            '</div>',
+            unsafe_allow_html=True
+        )
 
         col_gauge, col_details = st.columns([1, 2], gap="large")
 
@@ -375,7 +403,7 @@ with tab_file:
                 f'color:{gauge_clr}; border:1px solid {gauge_clr}55; '
                 f'padding:6px 20px; border-radius:20px; font-weight:700; '
                 f'font-size:14px; letter-spacing:1px;">'
-                f'{RISK_ICONS.get(level, "🛡️")} {level}'
+                f'{RISK_ICONS.get(level, "<i class=\"bi bi-shield-fill\"></i>")} {level}'
                 f'</span></div>',
                 unsafe_allow_html=True
             )
@@ -385,47 +413,45 @@ with tab_file:
             st.markdown(f"**Risk Level:** {level}")
             st.markdown(f"**AHP Score:** {score}/100")
 
-            # ── Status badge helper — corrected color mapping ──
+            # ── Status badge helper ──
             def status_cell(status):
                 s = str(status).upper()
 
                 if s in ("MALWARE", "MALICIOUS", "CRITICAL", "SPOOFED"):
-                    c, bg, icon = RISK_COLORS["CRITICAL"], RISK_BG["CRITICAL"], "🔴"
+                    c, bg = RISK_COLORS["CRITICAL"], RISK_BG["CRITICAL"]
+                    icon = '<i class="bi bi-x-circle-fill" style="font-size:10px;"></i>'
                 elif s == "HIGH":
-                    c, bg, icon = RISK_COLORS["HIGH"], RISK_BG["HIGH"], "🟠"
+                    c, bg = RISK_COLORS["HIGH"], RISK_BG["HIGH"]
+                    icon = '<i class="bi bi-exclamation-circle-fill" style="font-size:10px;"></i>'
                 elif s in ("MEDIUM", "DETECTED"):
-                    c, bg, icon = RISK_COLORS["MEDIUM"], RISK_BG["MEDIUM"], "🟡"
+                    c, bg = RISK_COLORS["MEDIUM"], RISK_BG["MEDIUM"]
+                    icon = '<i class="bi bi-dash-circle-fill" style="font-size:10px;"></i>'
                 elif s == "LOW":
-                    c, bg, icon = RISK_COLORS["LOW"], RISK_BG["LOW"], "🟢"
+                    c, bg = RISK_COLORS["LOW"], RISK_BG["LOW"]
+                    icon = '<i class="bi bi-check-circle" style="font-size:10px;"></i>'
                 else:
-                    c, bg, icon = RISK_COLORS["SAFE"], RISK_BG["SAFE"], "🔵"
+                    c, bg = RISK_COLORS["SAFE"], RISK_BG["SAFE"]
+                    icon = '<i class="bi bi-check-circle-fill" style="font-size:10px;"></i>'
                     s = "SAFE"
 
                 return (
                     f'<span style="background:{bg};color:{c};padding:2px 10px;'
                     f'border-radius:12px;font-size:12px;font-weight:700;">{icon} {s}</span>'
                 )
-            
-            # Normalize hash status for display
+
+            # Normalize statuses for display
             hash_display = hash_result["status"]
             if hash_display in ("DB_NOT_FOUND", "CLEAN", "ERROR"):
                 hash_display = "SAFE"
- 
-            # Normalize VT status for display
+
             vt_display = vt_result["status"]
             if vt_display in ("NOT_FOUND", "CLEAN", "RATE_LIMIT", "CONNECTION_ERROR", "ERROR"):
                 vt_display = "SAFE"
- 
-            # Normalize heuristic status — 0 indicators = SAFE not LOW
-            heuristic_display = "SAFE" if heuristic_result["total_indicators"] == 0 else heuristic_result["risk"]
- 
-            # Normalize entropy status
-            entropy_display = entropy_result["risk"]
- 
-            # Normalize DLP status
-            dlp_display = "SAFE" if not dlp_result["pii_found"] else level
 
-            
+            heuristic_display = "SAFE" if heuristic_result["total_indicators"] == 0 else heuristic_result["risk"]
+            entropy_display   = entropy_result["risk"]
+            dlp_display       = "SAFE" if not dlp_result["pii_found"] else level
+
             table_rows = [
                 {
                     "Module":  "Hash Engine",
@@ -465,14 +491,19 @@ with tab_file:
                 },
             ]
 
-            st.markdown('<div class="cd-section" style="margin-top:8px;">🔬 Scan Results</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="cd-section" style="margin-top:8px;">'
+                '<i class="bi bi-search"></i> Scan Results'
+                '</div>',
+                unsafe_allow_html=True
+            )
 
             rows_html = "".join([
                 f'<tr style="border-bottom:1px solid {PRIMARY}22;">'
                 f'<td style="padding:10px 12px;font-size:13px;color:{TEXT_COLOR};">{r["Module"]}</td>'
                 f'<td style="padding:10px 12px;">{status_cell(r["Status"])}</td>'
-                f'<td style="padding:10px 12px;font-size:12px;color:{TEXT_COLOR};opacity:0.7;">{r["Details"]}</td>'
-                f'<td style="padding:10px 12px;font-size:11px;color:{TEXT_COLOR};opacity:0.45;font-style:italic;">{r["Source"]}</td>'
+                f'<td style="padding:10px 12px;font-size:12px;color:{"#CCCCCC" if IS_DARK else "#444444"};">{r["Details"]}</td>'
+                f'<td style="padding:10px 12px;font-size:11px;color:{"#999999" if IS_DARK else "#666666"};font-style:italic;">{r["Source"]}</td>'
                 f'</tr>'
                 for r in table_rows
             ])
@@ -495,7 +526,12 @@ with tab_file:
 
         # ── Detected PII Detail Table ──
         if dlp_result["findings"]:
-            st.markdown('<div class="cd-section">🔎 Detected Sensitive Data (Masked)</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="cd-section">'
+                '<i class="bi bi-eye-slash-fill"></i> Detected Sensitive Data (Masked)'
+                '</div>',
+                unsafe_allow_html=True
+            )
             pii_rows = []
             for pii_type, info in dlp_result["findings"].items():
                 pii_rows.append({
@@ -507,14 +543,24 @@ with tab_file:
 
         # ── Heuristic Findings Detail ──
         if heuristic_result.get("findings"):
-            st.markdown('<div class="cd-section">🧩 Heuristic Findings</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="cd-section">'
+                '<i class="bi bi-puzzle-fill"></i> Heuristic Findings'
+                '</div>',
+                unsafe_allow_html=True
+            )
             h_rows = []
             for category, indicators in heuristic_result["findings"].items():
                 h_rows.append({"Category": category, "Indicators": ", ".join(indicators)})
             st.dataframe(pd.DataFrame(h_rows), use_container_width=True, hide_index=True)
 
         # ── Smart Security Recommendations ──
-        st.markdown('<div class="cd-section">🛡️ Smart Security Recommendations</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="cd-section">'
+            '<i class="bi bi-shield-fill"></i> Smart Security Recommendations'
+            '</div>',
+            unsafe_allow_html=True
+        )
 
         active_recs = []
         if hash_result["status"] == "MALWARE" or vt_result["status"] in ("MALWARE", "HIGH", "CRITICAL"):
@@ -544,7 +590,8 @@ with tab_file:
             st.markdown(
                 f'<div style="background:{RISK_BG["SAFE"]}; border:1px solid {RISK_COLORS["SAFE"]}55; '
                 f'border-left:4px solid {RISK_COLORS["SAFE"]}; border-radius:12px; padding:16px 20px;">'
-                f'<strong style="color:{RISK_COLORS["SAFE"]};">✅ No Threats Detected</strong><br>'
+                f'<strong style="color:{RISK_COLORS["SAFE"]};">'
+                f'<i class="bi bi-check-circle-fill"></i> No Threats Detected</strong><br>'
                 f'<span style="font-size:13px; color:{TEXT_COLOR}; opacity:0.8;">This file appears to be safe.</span>'
                 f'</div>',
                 unsafe_allow_html=True
@@ -552,26 +599,31 @@ with tab_file:
 
         # Final alert banner using risk color
         if level == "CRITICAL":
-            st.error("🚨 **CRITICAL Risk:** Do not open, share, or execute this file. Notify your IT/security team immediately.")
+            st.error("**CRITICAL Risk:** Do not open, share, or execute this file. Notify your IT/security team immediately.")
         elif level == "HIGH":
-            st.warning("🔶 **High Risk:** Do not open this file. Investigate further before any action.")
+            st.warning("**High Risk:** Do not open this file. Investigate further before any action.")
         elif level == "MEDIUM":
-            st.warning("🟡 **Medium Risk:** Review the file carefully before sharing. Mask or remove sensitive identifiers.")
+            st.warning("**Medium Risk:** Review the file carefully before sharing. Mask or remove sensitive identifiers.")
         elif level == "LOW":
-            st.info("🟢 **Low Risk:** Limited risk detected. Ensure only necessary data is included.")
+            st.info("**Low Risk:** Limited risk detected. Ensure only necessary data is included.")
         else:
-            st.success("🔵 **Safe:** No threats detected. This file appears clean.")
+            st.success("**Safe:** No threats detected. This file appears clean.")
 
         # ── PDF Report ──
         st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="cd-section">📄 Download Report</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="cd-section">'
+            '<i class="bi bi-file-earmark-pdf-fill"></i> Download Report'
+            '</div>',
+            unsafe_allow_html=True
+        )
 
         try:
             from modules.report_generator import generate_report
 
             import re
             os.makedirs("reports", exist_ok=True)
-            clean_name = re.sub(r'[^\w\-.]', '_', uploaded_file.name)
+            clean_name  = re.sub(r'[^\w\-.]', '_', uploaded_file.name)
             report_path = f"reports/{clean_name}_report.pdf"
 
             report_details = {
@@ -581,9 +633,7 @@ with tab_file:
                 "Heuristic Risk":    f"{heuristic_result['risk']} ({heuristic_result.get('total_indicators', 0)} indicators)",
                 "DLP Status":        level if dlp_result["pii_found"] else "Clean",
                 "PII Types Found":   ", ".join(dlp_result["findings"].keys()) if dlp_result["findings"] else "None",
-            
             }
-
 
             generate_report(uploaded_file.name, score, report_details, output_path=report_path)
 
@@ -591,13 +641,13 @@ with tab_file:
                 with open(report_path, "rb") as f:
                     pdf_bytes = f.read()
                 st.download_button(
-                    label="⬇️  Download PDF Report",
+                    label="Download PDF Report",
                     data=pdf_bytes,
                     file_name=f"CleanDrop_Report_{clean_name}.pdf",
                     mime="application/pdf",
                 )
         except Exception as e:
-            st.info(f"📋 PDF report will be available once report_generator.py is fully integrated. ({e})")
+            st.info(f"PDF report will be available once report_generator.py is fully integrated. ({e})")
 
         # Cleanup temp file
         try:
@@ -609,11 +659,13 @@ with tab_file:
         st.markdown(
             f"""
             <div class="cd-card" style="text-align:center; padding:40px;">
-                <div style="font-size:3rem;">🛡️</div>
+                <div style="font-size:3rem; color:{PRIMARY};">
+                    <i class="bi bi-shield-fill-check"></i>
+                </div>
                 <div style="font-size:1.2rem; font-weight:600; margin-top:12px; color:{PRIMARY};">
                     Ready to Scan
                 </div>
-                <div style="opacity:0.7; margin-top:8px;">
+                <div style="color:#AAAAAA; margin-top:8px;">
                     Upload a file above to begin the security analysis.
                 </div>
             </div>
@@ -626,25 +678,31 @@ with tab_file:
 # ══════════════════════════════════════════════
 with tab_url:
 
-    st.markdown('<div class="cd-section">🔗 URL Security Scanner</div>', unsafe_allow_html=True)
     st.markdown(
-        f'<div style="color:{TEXT_COLOR}; opacity:0.7; font-size:14px; margin-bottom:16px;">'
-        f'Enter any URL to check it.'
+        '<div class="cd-section">'
+        '<i class="bi bi-link-45deg"></i> URL Security Scanner'
+        '</div>',
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        f'<div style="color:#BBBBBB; font-size:14px; margin-bottom:16px;">'
+        f'Enter any URL to check it against Google Safe Browsing, VirusTotal and Cloudflare Radar.'
         f'</div>',
         unsafe_allow_html=True
     )
 
     url_input = st.text_input(
-    "URL",
-    placeholder="https://example.com  or just  example.com",
-    label_visibility="collapsed"
+        "URL",
+        placeholder="https://example.com  or just  example.com",
+        label_visibility="collapsed"
     )
-    
+
     check_clicked = st.button("Check URL", key="url_check_btn")
 
     if url_input and check_clicked:
-        st.info("⏳ If this is a new or unknown URL, scanning may take up to 15 seconds — please wait.")
-        with st.spinner("🔍 Checking URL against Google Safe Browsing + VirusTotal + Cloudflare Radar.."):            url_result = check_url(url_input)
+        st.info("If this is a new or unknown URL, scanning may take up to 15 seconds — please wait.")
+        with st.spinner("Checking URL against Google Safe Browsing + VirusTotal + Cloudflare Radar…"):
+            url_result = check_url(url_input)
 
         status  = url_result.get("status", "ERROR")
         source  = url_result.get("source", "")
@@ -661,37 +719,34 @@ with tab_url:
         if status == "SAFE":
             st.markdown(
                 f'<div class="url-result-safe">'
-                f'<strong style="color:{RISK_COLORS["SAFE"]}; font-size:1.1rem;">✅ URL is Safe</strong><br><br>'
+                f'<strong style="color:{RISK_COLORS["SAFE"]}; font-size:1.1rem;">'
+                f'<i class="bi bi-check-circle-fill"></i> URL is Safe</strong><br><br>'
                 f'No threats detected for: <code>{url_input}</code><br>'
-                f'<span style="opacity:0.7; font-size:13px;">Checked by: {source}</span>'
+                f'<span style="color:#AAAAAA; font-size:13px;">Checked by: {source}</span>'
                 f'</div>',
                 unsafe_allow_html=True
             )
 
         # ── MALICIOUS ──
         elif status == "MALICIOUS":
-            threats      = url_result.get("threats", [])
-            det_rate     = url_result.get("detection_rate", "")
-            all_sources  = url_result.get("all_sources", [])
-            db_count     = url_result.get("databases_count", 1)
-            source       = url_result.get("source", "")
-            rec          = RECOMMENDATIONS["URL Analyzer"]
- 
-            # Format threat types — show actual types not just "detected by X engines"
-            if threats:
-                threat_str = ", ".join(threats)
-            else:
-                threat_str = "Unknown threat type"
- 
-            # Format detection sources
+            threats     = url_result.get("threats", [])
+            det_rate    = url_result.get("detection_rate", "")
+            all_sources = url_result.get("all_sources", [])
+            db_count    = url_result.get("databases_count", 1)
+            source      = url_result.get("source", "")
+            rec         = RECOMMENDATIONS["URL Analyzer"]
+
+            threat_str = ", ".join(threats) if threats else "Unknown threat type"
+
             if db_count > 1:
-                source_badge = f"🔴 Found in {db_count} databases"
+                source_badge = f'<i class="bi bi-database-fill-x" style="color:{RISK_COLORS["CRITICAL"]};"></i> Found in {db_count} databases'
             else:
-                source_badge = f"🔴 Found in {source}"
- 
+                source_badge = f'<i class="bi bi-database-fill-x" style="color:{RISK_COLORS["CRITICAL"]};"></i> Found in {source}'
+
             st.markdown(
                 f'<div class="url-result-danger">'
-                f'<strong style="color:{RISK_COLORS["CRITICAL"]}; font-size:1.1rem;">🚨 Dangerous URL Detected</strong><br><br>'
+                f'<strong style="color:{RISK_COLORS["CRITICAL"]}; font-size:1.1rem;">'
+                f'<i class="bi bi-exclamation-triangle-fill"></i> Dangerous URL Detected</strong><br><br>'
                 f'URL: <code>{url_input}</code><br><br>'
                 f'<strong>Threat type(s):</strong> {threat_str}<br>'
                 f'<strong>Detected by:</strong> {source_badge}<br>'
@@ -701,13 +756,15 @@ with tab_url:
                 f'</div>',
                 unsafe_allow_html=True
             )
-        # ── SUSPICIOUS (new) ──
+
+        # ── SUSPICIOUS ──
         elif status == "SUSPICIOUS":
             det_rate = url_result.get("detection_rate", "N/A")
             st.markdown(
                 f'<div style="background:{RISK_BG["HIGH"]}; border:1px solid {RISK_COLORS["HIGH"]}; '
                 f'border-radius:12px; padding:18px 22px; margin-top:12px;">'
-                f'<strong style="color:{RISK_COLORS["HIGH"]}; font-size:1.1rem;">⚠️ Suspicious URL</strong><br><br>'
+                f'<strong style="color:{RISK_COLORS["HIGH"]}; font-size:1.1rem;">'
+                f'<i class="bi bi-exclamation-diamond-fill"></i> Suspicious URL</strong><br><br>'
                 f'URL: <code>{url_input}</code><br>'
                 f'Detection rate: <strong>{det_rate}</strong><br>'
                 f'Source: {source}<br><br>'
@@ -719,18 +776,19 @@ with tab_url:
                 unsafe_allow_html=True
             )
 
-        # ── UNKNOWN (new) — not in any database ──
+        # ── UNKNOWN — not in any database ──
         elif status == "UNKNOWN":
             st.markdown(
                 f'<div style="background:{RISK_BG["MEDIUM"]}; border:1px solid {RISK_COLORS["MEDIUM"]}; '
                 f'border-radius:12px; padding:18px 22px; margin-top:12px;">'
-                f'<strong style="color:{RISK_COLORS["MEDIUM"]}; font-size:1.1rem;">❓ Unknown URL</strong><br><br>'
+                f'<strong style="color:{RISK_COLORS["MEDIUM"]}; font-size:1.1rem;">'
+                f'<i class="bi bi-question-circle-fill"></i> Unknown URL</strong><br><br>'
                 f'URL: <code>{url_input}</code><br><br>'
                 f'<span style="font-size:13px; opacity:0.85;">'
                 f'This URL was <strong>not found in any threat database</strong> '
                 f'(Google Safe Browsing + VirusTotal). '
                 f'This does <strong>not</strong> guarantee it is safe.<br><br>'
-                f'⚠️ Proceed with caution — unknown links may still be dangerous.'
+                f'<i class="bi bi-exclamation-triangle"></i> Proceed with caution — unknown links may still be dangerous.'
                 f'</span>'
                 f'</div>',
                 unsafe_allow_html=True
@@ -740,7 +798,8 @@ with tab_url:
         elif status == "INVALID_URL":
             st.markdown(
                 f'<div class="url-result-warn">'
-                f'<strong style="color:{RISK_COLORS["MEDIUM"]};">⚠️ Invalid URL Format</strong><br><br>'
+                f'<strong style="color:{RISK_COLORS["MEDIUM"]};">'
+                f'<i class="bi bi-exclamation-triangle"></i> Invalid URL Format</strong><br><br>'
                 f'The URL must start with <code>http://</code> or <code>https://</code><br>'
                 f'Example: <code>https://example.com</code>'
                 f'</div>',
@@ -751,7 +810,8 @@ with tab_url:
         elif status == "RATE_LIMITED":
             st.markdown(
                 f'<div class="url-result-warn">'
-                f'<strong style="color:{RISK_COLORS["MEDIUM"]};">⏳ Too Many Requests</strong><br><br>'
+                f'<strong style="color:{RISK_COLORS["MEDIUM"]};">'
+                f'<i class="bi bi-hourglass-split"></i> Too Many Requests</strong><br><br>'
                 f'VirusTotal API rate limit reached (4 requests/minute).<br>'
                 f'Please wait 60 seconds and try again.'
                 f'</div>',
@@ -762,7 +822,8 @@ with tab_url:
         elif status == "CONNECTION_ERROR":
             st.markdown(
                 f'<div class="url-result-warn">'
-                f'<strong style="color:{RISK_COLORS["MEDIUM"]};">⚠️ Connection Error</strong><br><br>'
+                f'<strong style="color:{RISK_COLORS["MEDIUM"]};">'
+                f'<i class="bi bi-wifi-off"></i> Connection Error</strong><br><br>'
                 f'Could not reach threat databases. Please check your internet connection.'
                 f'</div>',
                 unsafe_allow_html=True
@@ -772,7 +833,8 @@ with tab_url:
         else:
             st.markdown(
                 f'<div class="url-result-warn">'
-                f'<strong style="color:{RISK_COLORS["MEDIUM"]};">⚠️ {status}</strong><br><br>'
+                f'<strong style="color:{RISK_COLORS["MEDIUM"]};">'
+                f'<i class="bi bi-exclamation-circle"></i> {status}</strong><br><br>'
                 f'Could not complete the URL check. Please verify your API keys.'
                 f'</div>',
                 unsafe_allow_html=True
@@ -782,14 +844,16 @@ with tab_url:
         st.markdown(
             f"""
             <div class="cd-card" style="text-align:center; padding:40px;">
-                <div style="font-size:3rem;">🔗</div>
+                <div style="font-size:3rem; color:{PRIMARY};">
+                    <i class="bi bi-link-45deg"></i>
+                </div>
                 <div style="font-size:1.2rem; font-weight:600; margin-top:12px; color:{PRIMARY};">
                     URL Scanner Ready
                 </div>
-                <div style="opacity:0.7; margin-top:8px; font-size:14px;">
+                <div style="color:#AAAAAA; margin-top:8px; font-size:14px;">
                     Enter a URL above and click Check URL to scan it.
                 </div>
-                <div style="opacity:0.5; margin-top:16px; font-size:12px;">
+                <div style="color:#888888; margin-top:16px; font-size:12px;">
                     Powered by Google Safe Browsing API
                 </div>
             </div>
@@ -802,7 +866,7 @@ with tab_url:
 # ──────────────────────────────────────────────
 st.markdown("<hr>", unsafe_allow_html=True)
 st.markdown(
-    f'<div style="text-align:center; color:{TEXT_COLOR}; opacity:0.4; font-size:12px; padding-bottom:1rem;">'
+    f'<div style="text-align:center; color:#888888; font-size:12px; padding-bottom:1rem;">'
     f'CleanDrop &nbsp;·&nbsp; University of Bisha &nbsp;·&nbsp; Cyber Security Department'
     f'</div>',
     unsafe_allow_html=True

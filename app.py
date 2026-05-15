@@ -1,7 +1,14 @@
 import streamlit as st
 import os
 
-# Bridge st.secrets → os.environ so all modules can use os.environ.get() consistently.
+# ── Page config must be the very first Streamlit call ─────────────────────────
+st.set_page_config(
+    page_title="CleanDrop",
+    page_icon="🛡️",
+    layout="wide",
+)
+
+# ── Bridge st.secrets → os.environ ───────────────────────────────────────────
 try:
     for _k, _v in st.secrets.items():
         if isinstance(_v, str):
@@ -21,16 +28,6 @@ from modules.auth import is_authenticated
 from modules.file_signature import check_file_signature
 import tempfile
 import pandas as pd
-
-
-# ──────────────────────────────────────────────
-# PAGE CONFIG  (must be the very first st call)
-# ──────────────────────────────────────────────
-st.set_page_config(
-    page_title="CleanDrop",
-    page_icon="🛡️",
-    layout="wide",
-)
 
 # ──────────────────────────────────────────────
 # RISK LEVEL COLOR SYSTEM

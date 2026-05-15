@@ -6,6 +6,13 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timezone, timedelta
 
+# ── Page config must be the very first Streamlit call ─────────────────────────
+st.set_page_config(
+    page_title="CleanDrop Admin",
+    page_icon="🛡️",
+    layout="wide",
+)
+
 # ── Bridge Streamlit secrets → os.environ ────────────────────────────────────
 try:
     for _k, _v in st.secrets.items():
@@ -16,13 +23,6 @@ except Exception:
 
 from modules.auth import (
     is_authenticated, is_locked_out, login, logout, get_current_user
-)
-
-# ── Page config ───────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="CleanDrop Admin",
-    page_icon="🛡️",
-    layout="wide",
 )
 
 PRIMARY    = "#00FFA3"
